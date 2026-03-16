@@ -68,4 +68,308 @@
       to   { transform: scale(1) rotate(0deg); opacity: 1; }
     }
 
-    .emoji-big
+    .emoji-big {
+      font-size: 4rem;
+      display: block;
+      margin-bottom: 0.25rem;
+      animation: wobble 2.5s ease-in-out infinite;
+    }
+    @keyframes wobble {
+      0%, 100% { transform: rotate(-6deg); }
+      50%       { transform: rotate(6deg); }
+    }
+
+    h1 {
+      font-family: 'Boogaloo', cursive;
+      font-size: 3rem;
+      color: var(--brown);
+      line-height: 1;
+      margin-bottom: 0.25rem;
+      text-shadow: 3px 3px 0 var(--shadow);
+    }
+
+    .tagline {
+      font-size: 0.95rem;
+      color: var(--brown);
+      opacity: 0.75;
+      margin-bottom: 1.25rem;
+      font-weight: 700;
+    }
+
+    .btn {
+      background: var(--brown);
+      color: var(--yellow);
+      font-family: 'Boogaloo', cursive;
+      font-size: 1.5rem;
+      padding: 0.75rem 2rem;
+      border: none;
+      border-radius: 50px;
+      cursor: pointer;
+      transition: transform 0.1s, box-shadow 0.1s;
+      box-shadow: 4px 4px 0 #2a1500;
+      letter-spacing: 1px;
+    }
+    .btn:hover  { transform: translate(-2px,-2px); box-shadow: 6px 6px 0 #2a1500; }
+    .btn:active { transform: translate(2px,2px);   box-shadow: 2px 2px 0 #2a1500; }
+    .btn:disabled { opacity: 0.6; cursor: not-allowed; transform: none; }
+
+    #status {
+      margin-top: 0.85rem;
+      font-size: 0.9rem;
+      color: var(--brown);
+      min-height: 1.3rem;
+      font-weight: 700;
+    }
+    .status-ok  { color: var(--green); }
+    .status-err { color: #c0392b; }
+
+    #map-wrap {
+      position: relative;
+      z-index: 1;
+      margin-top: 1.5rem;
+      width: 100%;
+      max-width: 640px;
+      border: 4px solid var(--brown);
+      border-radius: 20px;
+      overflow: hidden;
+      box-shadow: 8px 8px 0 var(--brown);
+      display: none;
+    }
+    #map {
+      height: 380px;
+      width: 100%;
+    }
+
+    #result-card {
+      display: none;
+      position: relative;
+      z-index: 1;
+      margin-top: 1rem;
+      background: white;
+      border: 3px solid var(--brown);
+      border-radius: 16px;
+      padding: 1rem 1.5rem;
+      max-width: 640px;
+      width: 100%;
+      box-shadow: 5px 5px 0 var(--brown);
+      text-align: left;
+    }
+    #result-card h2 {
+      font-family: 'Boogaloo', cursive;
+      font-size: 1.4rem;
+      color: var(--brown);
+      margin-bottom: 0.25rem;
+    }
+    #result-card p {
+      font-size: 0.88rem;
+      color: #555;
+      margin: 0.1rem 0;
+    }
+    #result-card .dist-badge {
+      display: inline-block;
+      background: var(--yellow);
+      border: 2px solid var(--brown);
+      border-radius: 20px;
+      padding: 0.2rem 0.75rem;
+      font-weight: 700;
+      font-size: 0.85rem;
+      color: var(--brown);
+      margin-top: 0.4rem;
+    }
+
+    .footer {
+      position: relative;
+      z-index: 1;
+      margin-top: 1.5rem;
+      font-size: 0.75rem;
+      color: var(--brown);
+      opacity: 0.5;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="bg-bananas" id="bgBananas"></div>
+
+  <div class="card">
+    <span class="emoji-big">🍌</span>
+    <h1>LunkBanana</h1>
+    <p class="tagline">The world's most important banana finder.</p>
+    <button class="btn" id="findBtn" onclick="findBanana()">🍌 Find Me a Banana!</button>
+    <p id="status"></p>
+  </div>
+
+  <div id="map-wrap">
+    <div id="map"></div>
+  </div>
+
+  <div id="result-card">
+    <h2 id="rc-name"></h2>
+    <p id="rc-type"></p>
+    <p id="rc-addr"></p>
+    <span class="dist-badge" id="rc-dist"></span>
+  </div>
+
+  <p class="footer">Powered by GPS, Leaflet &amp; OpenStreetMap 🍌</p>
+
+  <script>
+    const bg = document.getElementById('bgBananas');
+    for (let i = 0; i < 18; i++) {
+      const b = document.createElement('div');
+      b.classList.add('bg-banana');
+      b.textContent = '🍌';
+      b.style.left = Math.random() * 100 + 'vw';
+      b.style.fontSize = (1.5 + Math.random() * 3) + 'rem';
+      b.style.animationDuration = (8 + Math.random() * 14) + 's';
+      b.style.animationDelay = (Math.random() * 12) + 's';
+      bg.appendChild(b);
+    }
+
+    let map = null;
+    let markers = [];
+    let routeLine = null;
+
+    function haversine(lat1, lon1, lat2, lon2) {
+      const R = 3958.8;
+      const dLat = (lat2 - lat1) * Math.PI / 180;
+      const dLon = (lon2 - lon1) * Math.PI / 180;
+      const a = Math.sin(dLat/2)**2 +
+                Math.cos(lat1 * Math.PI/180) * Math.cos(lat2 * Math.PI/180) *
+                Math.sin(dLon/2)**2;
+      return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+    }
+
+    function clearMap() {
+      markers.forEach(m => map && map.removeLayer(m));
+      markers = [];
+      if (routeLine && map) { map.removeLayer(routeLine); routeLine = null; }
+    }
+
+    async function findBanana() {
+      const btn    = document.getElementById('findBtn');
+      const status = document.getElementById('status');
+
+      if (!navigator.geolocation) {
+        status.textContent = '❌ Your browser doesn\'t support geolocation.';
+        status.className = 'status-err';
+        return;
+      }
+
+      btn.disabled = true;
+      status.className = '';
+      status.textContent = '📍 Getting your location...';
+
+      navigator.geolocation.getCurrentPosition(
+        async (pos) => {
+          const { latitude: lat, longitude: lon } = pos.coords;
+          status.textContent = '🔍 Searching for banana sources nearby...';
+
+          try {
+            const radius = 5000;
+            const query = `
+              [out:json][timeout:15];
+              (
+                node["shop"="supermarket"](around:${radius},${lat},${lon});
+                node["shop"="grocery"](around:${radius},${lat},${lon});
+                node["shop"="convenience"](around:${radius},${lat},${lon});
+                node["shop"="farm"](around:${radius},${lat},${lon});
+                node["shop"="greengrocer"](around:${radius},${lat},${lon});
+              );
+              out body;
+            `;
+
+            const res = await fetch('https://overpass-api.de/api/interpreter', {
+              method: 'POST',
+              body: query
+            });
+
+            if (!res.ok) throw new Error('Overpass API error');
+            const data = await res.json();
+
+            if (!data.elements || data.elements.length === 0) {
+              status.textContent = '😔 No stores found within 5km. The bananas are far away!';
+              status.className = 'status-err';
+              btn.disabled = false;
+              return;
+            }
+
+            let closest = null;
+            let closestDist = Infinity;
+            for (const el of data.elements) {
+              const d = haversine(lat, lon, el.lat, el.lon);
+              if (d < closestDist) { closestDist = d; closest = el; }
+            }
+
+            const mapWrap = document.getElementById('map-wrap');
+            mapWrap.style.display = 'block';
+
+            if (!map) {
+              map = L.map('map');
+              L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                attribution: '© <a href="https://openstreetmap.org">OpenStreetMap</a> contributors'
+              }).addTo(map);
+            } else {
+              clearMap();
+            }
+
+            map.setView([lat, lon], 14);
+
+            const youIcon = L.divIcon({ html: '📍', className: '', iconSize: [32,32], iconAnchor: [16,32] });
+            const youMarker = L.marker([lat, lon], { icon: youIcon })
+              .addTo(map)
+              .bindPopup('<b>You are here</b>');
+            markers.push(youMarker);
+
+            const bananaIcon = L.divIcon({ html: '🍌', className: '', iconSize: [36,36], iconAnchor: [18,36] });
+            const storeName = closest.tags?.name || 'Unnamed Store';
+            const storeMarker = L.marker([closest.lat, closest.lon], { icon: bananaIcon })
+              .addTo(map)
+              .bindPopup(`<b>${storeName}</b><br>🍌 Likely has bananas!`)
+              .openPopup();
+            markers.push(storeMarker);
+
+            routeLine = L.polyline([[lat, lon], [closest.lat, closest.lon]], {
+              color: '#4A2C0A', weight: 3, dashArray: '8, 8'
+            }).addTo(map);
+
+            map.fitBounds([[lat, lon], [closest.lat, closest.lon]], { padding: [50, 50] });
+
+            const distMiles = closestDist.toFixed(2);
+            const distFt    = (closestDist * 5280).toFixed(0);
+            const storeType = closest.tags?.shop || 'store';
+            const rc = document.getElementById('result-card');
+            rc.style.display = 'block';
+            document.getElementById('rc-name').textContent = '🍌 ' + storeName;
+            document.getElementById('rc-type').textContent =
+              storeType.charAt(0).toUpperCase() + storeType.slice(1);
+            document.getElementById('rc-addr').textContent =
+              [closest.tags?.['addr:housenumber'], closest.tags?.['addr:street'], closest.tags?.['addr:city']]
+                .filter(Boolean).join(', ') || 'Address not listed in OpenStreetMap';
+            document.getElementById('rc-dist').textContent =
+              distMiles < 0.2 ? `${distFt} ft away` : `${distMiles} miles away`;
+
+            status.textContent = `✅ Found ${data.elements.length} store(s) nearby!`;
+            status.className = 'status-ok';
+            btn.disabled = false;
+            btn.textContent = '🍌 Search Again';
+
+          } catch (err) {
+            console.error(err);
+            status.textContent = '❌ Search failed. Check your connection and try again.';
+            status.className = 'status-err';
+            btn.disabled = false;
+          }
+        },
+        (err) => {
+          btn.disabled = false;
+          status.className = 'status-err';
+          status.textContent = err.code === 1
+            ? '❌ Location denied. Please allow location access in your browser.'
+            : '❌ Couldn\'t get your location. Try again!';
+        },
+        { timeout: 10000 }
+      );
+    }
+  </script>
+</body>
+</html>
